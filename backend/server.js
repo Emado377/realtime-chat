@@ -1,9 +1,12 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const pool = require('./db');
-require('dotenv').config();
+const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 // Initialize the app FIRST
 const app = express();
@@ -17,10 +20,26 @@ const io = new Server(server, {
 app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173" }));
 app.use(express.json());
 
+// --- CLOUDINARY SETUP ---
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'chat_uploads',
+    resource_type: 'auto', // Allows images, videos, and audio
+  },
+});
+const upload = multer({ storage });
+
 // Import Routes
 const authRoutes = require('./routes/auth');
 
-// USE Routes (This is where it was failing before)
+// USE Routes
 app.use('/api/auth', authRoutes);
 
 // Auto-create tables
@@ -67,7 +86,7 @@ app.get('/api/messages/:user1/:user2', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-// GET ALL USERS (For the Admin Sidebar)
+
 app.get('/api/users', async (req, res) => {
   try {
     const result = await pool.query('SELECT id, name, email, role FROM users ORDER BY name ASC');
@@ -75,6 +94,12 @@ app.get('/api/users', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Cloudinary Upload Route
+app.post('/api/upload', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  res.json({ fileUrl: req.file.path });
 });
 
 // --- SOCKET.IO LOGIC ---
